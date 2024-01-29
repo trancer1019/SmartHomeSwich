@@ -16,6 +16,8 @@ private:
 	GPIO_TypeDef *GPIO_PORT;
 	uint16_t GPIO_PIN;
 
+	bool firstStartFlag; //фалг установленный с момента запуска и до первого запроса
+
 	bool buttonState;
 	uint8_t counter; //счетчик задержки антидребезга
 

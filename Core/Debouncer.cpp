@@ -5,6 +5,7 @@ Debouncer::Debouncer(GPIO_TypeDef *port, uint16_t pin) {
 	GPIO_PIN = pin;
 
 	buttonState = HAL_GPIO_ReadPin(GPIO_PORT, GPIO_PIN) == GPIO_PIN_SET;
+	firstStartFlag = true; //флаг "только загрузились"
 	counter = 0;
 
 	switchings = 0;
@@ -28,8 +29,10 @@ void Debouncer::updateState() {
 }
 
 uint8_t Debouncer::getState() {
-	uint8_t result = (((switchings <= 0x3F) ? switchings : 0x3F) << 1)
+	uint8_t result = (((uint8_t) firstStartFlag) << 7)
+			| (((switchings <= 0x0F) ? switchings : 0x0F) << 1)
 			| (buttonState & 0x01);
 	switchings = 0; //сбрасываем количество переключений
+	firstStartFlag = false; //флаг "только загрузились"
 	return result;
 }

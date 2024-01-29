@@ -6,12 +6,12 @@
 
 class SH_UartController {
 public:
-	SH_UartController(uint8_t DeviceAdress, UART_HandleTypeDef *huart); // Конструктор
+	SH_UartController(uint8_t *DeviceAdress, UART_HandleTypeDef *huart); // Конструктор
 
 	void update(uint8_t incomingByte); //Функция для обновления состояния в основном loop
 
 private:
-	const uint8_t DeviceAdress;  //адрес устройства
+	uint8_t *DeviceAdress;  //адрес устройства
 	UART_HandleTypeDef *huart;
 
 	uint8_t calculateCRC4(const uint8_t *data, size_t length);

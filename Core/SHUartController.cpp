@@ -6,7 +6,7 @@ uint8_t in_packetNCOM;                  //N команды принимаемо�
 uint8_t in_packetRegnum;                //Регистр принимаемого покета
 
 // Реализация конструктора
-SH_UartController::SH_UartController(uint8_t DeviceAdress,
+SH_UartController::SH_UartController(uint8_t *DeviceAdress,
 		UART_HandleTypeDef *huart) :
 		DeviceAdress(DeviceAdress), huart(huart) {
 }
@@ -19,7 +19,7 @@ void SH_UartController::update(uint8_t incomingByte) {
 	}
 	//-позиция байта адреса устройства
 	else if (in_packet_buffer_position == 1) {
-		if (incomingByte == DeviceAdress) {  //-если адрес текущего устройства
+		if (incomingByte == *DeviceAdress) {  //-если адрес текущего устройства
 			in_packet_buffer_position = 2;  //переключаем позицию
 		} else {
 			in_packet_buffer_position = -1;  //сбрасываем позицию
@@ -87,7 +87,7 @@ uint8_t SH_UartController::calculateCRC4(const uint8_t *data, size_t length) {
 //-функция проверки CRC
 bool SH_UartController::checkCRC(uint8_t CRC4, uint8_t NCOM,
 		uint8_t registerNumber, uint8_t registerValue) {
-	uint8_t data[] = { DeviceAdress, NCOM, registerNumber, registerValue };
+	uint8_t data[] = { *DeviceAdress, NCOM, registerNumber, registerValue };
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 
 	// Вычисление CRC4
@@ -99,7 +99,7 @@ bool SH_UartController::checkCRC(uint8_t CRC4, uint8_t NCOM,
 //-функция проверки CRC
 bool SH_UartController::checkCRC(uint8_t CRC4, uint8_t NCOM,
 		uint8_t registerNumber) {
-	uint8_t data[] = { DeviceAdress, NCOM, registerNumber };
+	uint8_t data[] = { *DeviceAdress, NCOM, registerNumber };
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 
 	// Вычисление CRC4
@@ -110,7 +110,7 @@ bool SH_UartController::checkCRC(uint8_t CRC4, uint8_t NCOM,
 }
 //-функция проверки CRC
 bool SH_UartController::checkCRC(uint8_t CRC4, uint8_t NCOM) {
-	uint8_t data[] = { DeviceAdress, NCOM };
+	uint8_t data[] = { *DeviceAdress, NCOM };
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 
 	// Вычисление CRC4
@@ -132,12 +132,12 @@ void SH_UartController::sendRegstate(uint8_t registerNumber,
 	if (registerValue == 0xAA)
 		registerValue = registerValue + 1; //если значение регистра = 0xAA
 
-	uint8_t data[] = { DeviceAdress, 0x03, registerNumber, registerValue };
+	uint8_t data[] = { *DeviceAdress, 0x03, registerNumber, registerValue };
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 	// Вычисление CRC4
 	uint8_t crcResult = calculateCRC4(data, dataLength);
 
-	uint8_t data_send[] = { 0xAA, DeviceAdress,
+	uint8_t data_send[] = { 0xAA, *DeviceAdress,
 			(uint8_t) (crcResult << 4 | 0x03), registerNumber, registerValue };
 	size_t data_sendLength = sizeof(data_send) / sizeof(data_send[0]);
 	rs485Send(data_send, data_sendLength);
@@ -145,29 +145,37 @@ void SH_UartController::sendRegstate(uint8_t registerNumber,
 
 //функция для отправки состояния запрашиваемого регистра
 void SH_UartController::send4Regstate(uint8_t *registerNumbersAndValues) {
-	uint8_t data[] = { DeviceAdress, 0x06,
+	uint8_t data[] = { *DeviceAdress, 0x06,
 			registerNumbersAndValues[0] != 0xAA ?
-					registerNumbersAndValues[0] : (uint8_t) 0xFF,
-			registerNumbersAndValues[1] != 0xAA ?
-					registerNumbersAndValues[1] : (uint8_t) 0xFF,
-			registerNumbersAndValues[2] != 0xAA ?
-					registerNumbersAndValues[2] : (uint8_t) 0xFF,
-			registerNumbersAndValues[3] != 0xAA ?
-					registerNumbersAndValues[3] : (uint8_t) 0xFF,
-			registerNumbersAndValues[4] != 0xAA ?
-					registerNumbersAndValues[4] : (uint8_t) 0xFF,
-			registerNumbersAndValues[5] != 0xAA ?
-					registerNumbersAndValues[5] : (uint8_t) 0xFF,
-			registerNumbersAndValues[6] != 0xAA ?
-					registerNumbersAndValues[6] : (uint8_t) 0xFF,
-			registerNumbersAndValues[7] != 0xAA ?
-					registerNumbersAndValues[7] : (uint8_t) 0xFF };
+					registerNumbersAndValues[0] :
+					(uint8_t)(registerNumbersAndValues[0] + 1),
+			registerNumbersAndValues[1] != (uint8_t)0xAA ?
+					registerNumbersAndValues[1] :
+					(uint8_t)(registerNumbersAndValues[1] + 1),
+			registerNumbersAndValues[2] != (uint8_t)0xAA ?
+					registerNumbersAndValues[2] :
+					(uint8_t)(registerNumbersAndValues[2] + 1),
+			registerNumbersAndValues[3] != (uint8_t)0xAA ?
+					registerNumbersAndValues[3] :
+					(uint8_t)(registerNumbersAndValues[3] + 1),
+			registerNumbersAndValues[4] != (uint8_t)0xAA ?
+					registerNumbersAndValues[4] :
+					(uint8_t)(registerNumbersAndValues[4] + 1),
+			registerNumbersAndValues[5] != (uint8_t)0xAA ?
+					registerNumbersAndValues[5] :
+					(uint8_t)(registerNumbersAndValues[5] + 1),
+			registerNumbersAndValues[6] != (uint8_t)0xAA ?
+					registerNumbersAndValues[6] :
+					(uint8_t)(registerNumbersAndValues[6] + 1),
+			registerNumbersAndValues[7] != (uint8_t)0xAA ?
+					registerNumbersAndValues[7] :
+					(uint8_t)(registerNumbersAndValues[7] + 1) };
 
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 	// Вычисление CRC4
 	uint8_t crcResult = calculateCRC4(data, dataLength);
 
-	uint8_t data_send[] = { 0xAA, DeviceAdress,
+	uint8_t data_send[] = { 0xAA, *DeviceAdress,
 			(uint8_t) (crcResult << 4 | 0x06), data[2], data[3], data[4],
 			data[5], data[6], data[7], data[8], data[9] };
 	size_t data_sendLength = sizeof(data_send) / sizeof(data_send[0]);
@@ -176,12 +184,12 @@ void SH_UartController::send4Regstate(uint8_t *registerNumbersAndValues) {
 
 //функция для отправки подтвержения записи регистра
 void SH_UartController::sendConfirm(uint8_t registerNumber) {
-	uint8_t data[] = { DeviceAdress, 0x04, registerNumber };
+	uint8_t data[] = { *DeviceAdress, 0x04, registerNumber };
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 	// Вычисление CRC4
 	uint8_t crcResult = calculateCRC4(data, dataLength);
 
-	uint8_t data_send[] = { 0xAA, DeviceAdress,
+	uint8_t data_send[] = { 0xAA, *DeviceAdress,
 			(uint8_t) (crcResult << 4 | 0x04), registerNumber };
 	size_t data_sendLength = sizeof(data_send) / sizeof(data_send[0]);
 	rs485Send(data_send, data_sendLength);

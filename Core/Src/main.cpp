@@ -25,10 +25,6 @@
 #include "../SimpleFIFO.h"
 #include "../Debouncer.h"
 #include "../SHUartController.h"
-
-//#include <stdio.h>
-//#include <string.h>
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,7 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DEVICEADRESS 02  // Адрес устройства
+#define FLASH_DATA_ADDRESS 0x08003800
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,6 +43,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+IWDG_HandleTypeDef hiwdg;
+
 TIM_HandleTypeDef htim16;
 TIM_HandleTypeDef htim17;
 
@@ -54,6 +52,7 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t uartin; //переменная для хранения байта принятых данных по UART
+uint8_t DeviceAdress; //адрес устройства (сохраняется во FLASH)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,8 +61,10 @@ static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM17_Init(void);
 static void MX_TIM16_Init(void);
+static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
-
+uint8_t readDataFromFlash(void);
+void writeDataToFlash(uint8_t data);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -73,8 +74,8 @@ Debouncer sw2(GPIOA, SWICH_2_Pin);
 Debouncer sw3(GPIOA, SWICH_3_Pin);
 Debouncer sw4(SWICH_4_GPIO_Port, SWICH_4_Pin);
 SimpleFIFO uartfifo;
-SH_UartController rs485Controller(DEVICEADRESS, &huart1); // Создание объекта класса для обмена по rs485
-		/* USER CODE END 0 */
+SH_UartController rs485Controller(&DeviceAdress, &huart1); // Создание объекта класса для обмена по rs485
+/* USER CODE END 0 */
 
 /**
  * @brief  The application entry point.
@@ -106,9 +107,11 @@ int main(void) {
 	MX_USART1_UART_Init();
 	MX_TIM17_Init();
 	MX_TIM16_Init();
+	MX_IWDG_Init();
 	/* USER CODE BEGIN 2 */
 	HAL_UART_Receive_IT(&huart1, (uint8_t*) &uartin, 1); //запуск приема данных по UART
 	HAL_TIM_Base_Start_IT(&htim16); // включаем прерывание
+	DeviceAdress = readDataFromFlash(); //считываем адрес устройства
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
@@ -121,6 +124,8 @@ int main(void) {
 			uint8_t getd = uartfifo.dequeue();
 			rs485Controller.update(getd); //выполнение функции обновления соостояни
 		}
+
+		HAL_IWDG_Refresh(&hiwdg); // сброс WatchDog'а
 	}
 	/* USER CODE END 3 */
 }
@@ -137,9 +142,11 @@ void SystemClock_Config(void) {
 	/** Initializes the RCC Oscillators according to the specified parameters
 	 * in the RCC_OscInitTypeDef structure.
 	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI
+			| RCC_OSCILLATORTYPE_LSI;
 	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
 	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+	RCC_OscInitStruct.LSIState = RCC_LSI_ON;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
 	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
 	RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
@@ -164,6 +171,33 @@ void SystemClock_Config(void) {
 	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
 		Error_Handler();
 	}
+}
+
+/**
+ * @brief IWDG Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_IWDG_Init(void) {
+
+	/* USER CODE BEGIN IWDG_Init 0 */
+
+	/* USER CODE END IWDG_Init 0 */
+
+	/* USER CODE BEGIN IWDG_Init 1 */
+
+	/* USER CODE END IWDG_Init 1 */
+	hiwdg.Instance = IWDG;
+	hiwdg.Init.Prescaler = IWDG_PRESCALER_16;
+	hiwdg.Init.Window = 4095;
+	hiwdg.Init.Reload = 4095;
+	if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
+		Error_Handler();
+	}
+	/* USER CODE BEGIN IWDG_Init 2 */
+
+	/* USER CODE END IWDG_Init 2 */
+
 }
 
 /**
@@ -341,6 +375,12 @@ void boardLedblink() {
 //функция для записи регистра
 void deviceWriteRegister(uint8_t registerNumber, uint8_t registerValue) {
 	boardLedblink(); //вспышка светодиода
+
+	//-обновление адреса устройства
+	if(registerNumber==0xF0){
+		DeviceAdress = registerValue;
+		writeDataToFlash(DeviceAdress);
+	}
 }
 
 //функция для чтения регистра
@@ -361,6 +401,9 @@ uint8_t deviceReadRegister(uint8_t registerNumber) {
 		break;
 	case 4:
 		registerValue = sw4.getState();
+		break;
+	case 0xF0:
+		registerValue = DeviceAdress;
 		break;
 	default:
 		registerValue = 0x00;
@@ -383,6 +426,30 @@ uint8_t* deviceRead4Register() {
 			0x02, registerValue2, 0x03, registerValue3, 0x04, registerValue4 };
 
 	return registerNumbersAndValues;
+}
+
+///-------------------------------------------
+// Функция для чтения переменной из Flash
+uint8_t readDataFromFlash(void) {
+	return *((uint8_t*) FLASH_DATA_ADDRESS);
+}
+
+// Функция для записи переменной во Flash
+void writeDataToFlash(uint8_t data) {
+	HAL_FLASH_Unlock();
+
+	FLASH_EraseInitTypeDef EraseInitStruct;
+	EraseInitStruct.TypeErase = FLASH_TYPEERASE_PAGES;
+	EraseInitStruct.PageAddress = FLASH_DATA_ADDRESS;
+	EraseInitStruct.NbPages = 1;
+
+	uint32_t PageError;
+
+	HAL_FLASHEx_Erase(&EraseInitStruct, &PageError);
+
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FLASH_DATA_ADDRESS, data);
+
+	HAL_FLASH_Lock();  // Заблокировать Flash
 }
 /* USER CODE END 4 */
 
