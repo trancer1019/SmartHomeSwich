@@ -30,11 +30,11 @@ void SH_UartController::update(uint8_t incomingByte) {
 		in_packetNCOM = incomingByte & 0x0F;  //считываем номер команды
 		in_packetCRC = incomingByte >> 4;     //считываем CRC
 
-		if (in_packetNCOM == 1 || in_packetNCOM == 2) { //если номер команды Чтение / Запись / Чтение всего
+		if (in_packetNCOM == 1 || in_packetNCOM == 2 || in_packetNCOM == 7) { //если номер команды Чтение / Запись / Повторное чтение
 			in_packet_buffer_position = 3;  //переключаем позицию
-		} else if (in_packetNCOM == 5) { //если номер команды Чтение всего
+		} else if (in_packetNCOM == 5 || in_packetNCOM == 9) { //если номер команды Чтение всего / Повторное чтение всего
 			if (checkCRC(in_packetCRC, in_packetNCOM)) { //проверка CRC
-				read4Register(); //запуск команды чтения всех регистров
+				read4Register(in_packetNCOM == 9); //запуск команды чтения всех регистров
 			}
 			in_packet_buffer_position = -1;  //сбрасываем позицию
 		} else {
@@ -43,9 +43,9 @@ void SH_UartController::update(uint8_t incomingByte) {
 	}
 	//-позиция байта Номер регистра
 	else if (in_packet_buffer_position == 3) {
-		if (in_packetNCOM == 1) { //команда чтения
+		if (in_packetNCOM == 1 || in_packetNCOM == 7) { //команда чтения / повторное чтение
 			if (checkCRC(in_packetCRC, in_packetNCOM, incomingByte)) { //проверка CRC
-				readRegister(incomingByte);  //запуск команды чтения регистра
+				readRegister(incomingByte, in_packetNCOM == 7);  //запуск команды чтения регистра
 			}
 			in_packet_buffer_position = -1;  //сбрасываем позицию
 		} else if (in_packetNCOM == 2) { //команда записи
@@ -173,7 +173,7 @@ void SH_UartController::send4Regstate(uint8_t *registerNumbersAndValues) {
 
 	size_t dataLength = sizeof(data) / sizeof(data[0]);
 	// Вычисление CRC4
-	uint8_t crcResult = calculateCRC4(data, dataLength);
+	uint8_t crcResult = calculateCRC4(data, dataLength+2);
 
 	uint8_t data_send[] = { 0xAA, *DeviceAdress,
 			(uint8_t) (crcResult << 4 | 0x06), data[2], data[3], data[4],
@@ -195,17 +195,17 @@ void SH_UartController::sendConfirm(uint8_t registerNumber) {
 	rs485Send(data_send, data_sendLength);
 }
 
-extern uint8_t deviceReadRegister(uint8_t registerNumber); //обявленеи внешней функции
+extern uint8_t deviceReadRegister(uint8_t registerNumber, bool repeat); //обявленеи внешней функции
 //функция для чтения регистра и отправки ответа
-void SH_UartController::readRegister(uint8_t registerNumber) {
-	uint8_t registerValue = deviceReadRegister(registerNumber); //выполняем команду
+void SH_UartController::readRegister(uint8_t registerNumber, bool repeat) {
+	uint8_t registerValue = deviceReadRegister(registerNumber, repeat); //выполняем команду
 	sendRegstate(registerNumber, registerValue); //отправляем состояние регистра
 }
 
-extern uint8_t* deviceRead4Register(); //обявленеи внешней функции
+extern uint8_t* deviceRead4Register(bool repeat=false); //обявленеи внешней функции
 //функция для чтения всех регистров и отправки ответа
-void SH_UartController::read4Register() {
-	uint8_t *registerNumbersAndValues = deviceRead4Register(); //выполняем команду
+void SH_UartController::read4Register(bool repeat) {
+	uint8_t *registerNumbersAndValues = deviceRead4Register(repeat); //выполняем команду
 	send4Regstate(registerNumbersAndValues); //отправляем состояние регистра
 	delete[] registerNumbersAndValues;
 }

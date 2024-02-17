@@ -35,6 +35,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define FLASH_DATA_ADDRESS 0x08003800
+#define UART_BAUD_RATE_ARR (uint32_t[]){300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600}
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,27 +53,30 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t uartin; //переменная для хранения байта принятых данных по UART
+
 uint8_t DeviceAdress; //адрес устройства (сохраняется во FLASH)
+uint32_t DeviceBaudRate;  //битрейт устройства (сохраняется во FLASH)
+uint8_t DeviceConfig; //конфигурация устройства (сохраняется во FLASH)
+
+uint8_t swcount; //определяем количество включенных клавиш
+Debouncer **swArr; //массив клавиш
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART1_UART_Init(void);
+static void MX_USART1_UART_Init(uint32_t BaudRate);
 static void MX_TIM17_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
-uint8_t readDataFromFlash(void);
-void writeDataToFlash(uint8_t data);
+uint64_t readDataFromFlash(void);
+void writeDataToFlash(uint64_t data);
+void boardLedblink();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-Debouncer sw1(GPIOA, SWICH_1_Pin);
-Debouncer sw2(GPIOA, SWICH_2_Pin);
-Debouncer sw3(GPIOA, SWICH_3_Pin);
-Debouncer sw4(SWICH_4_GPIO_Port, SWICH_4_Pin);
 SimpleFIFO uartfifo;
 SH_UartController rs485Controller(&DeviceAdress, &huart1); // Создание объекта класса для обмена по rs485
 /* USER CODE END 0 */
@@ -83,7 +87,30 @@ SH_UartController rs485Controller(&DeviceAdress, &huart1); // Создание �
  */
 int main(void) {
 	/* USER CODE BEGIN 1 */
+//	////удалить
+//	uint8_t _deviceAdress = 0x02; //адрес устройства
+//	uint32_t _deviceBaudRate = 115200; //битрейт устройства
+//	uint8_t _deviceConfig = 3; //конфигурация устройства
+//	writeDataToFlash((uint64_t) _deviceConfig << 40 | (uint64_t) _deviceBaudRate << 8 | (uint64_t) _deviceAdress);
+//	////удалить
 
+	uint64_t flashconfig = readDataFromFlash(); //считываем адрес устройства
+
+	DeviceAdress = flashconfig & 0xFF; //адрес устройства
+	DeviceBaudRate = (flashconfig >> 8) & 0xFFFFFFFF;  //битрейт устройства
+	DeviceConfig = (flashconfig >> 40) & 0xFF; //конфигурация устройства
+
+	swcount = (DeviceConfig & 0x03) + 1; //определяем количество включенных клавиш
+
+	/*Debouncer ***/swArr = new Debouncer*[swcount]; //массив клавиш
+	if (swcount >= 1)
+		swArr[0] = new Debouncer(GPIOA, SWICH_1_Pin);
+	if (swcount >= 2)
+		swArr[1] = new Debouncer(GPIOA, SWICH_2_Pin);
+	if (swcount >= 3)
+		swArr[2] = new Debouncer(GPIOA, SWICH_3_Pin);
+	if (swcount >= 4)
+		swArr[3] = new Debouncer(SWICH_4_GPIO_Port, SWICH_4_Pin);
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -104,14 +131,13 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_USART1_UART_Init();
+	MX_USART1_UART_Init(DeviceBaudRate);
 	MX_TIM17_Init();
 	MX_TIM16_Init();
 	MX_IWDG_Init();
 	/* USER CODE BEGIN 2 */
 	HAL_UART_Receive_IT(&huart1, (uint8_t*) &uartin, 1); //запуск приема данных по UART
 	HAL_TIM_Base_Start_IT(&htim16); // включаем прерывание
-	DeviceAdress = readDataFromFlash(); //считываем адрес устройства
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
@@ -268,7 +294,7 @@ static void MX_TIM17_Init(void) {
  * @param None
  * @retval None
  */
-static void MX_USART1_UART_Init(void) {
+static void MX_USART1_UART_Init(uint32_t BaudRate) {
 
 	/* USER CODE BEGIN USART1_Init 0 */
 
@@ -278,7 +304,7 @@ static void MX_USART1_UART_Init(void) {
 
 	/* USER CODE END USART1_Init 1 */
 	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 115200;
+	huart1.Init.BaudRate = BaudRate;
 	huart1.Init.WordLength = UART_WORDLENGTH_8B;
 	huart1.Init.StopBits = UART_STOPBITS_1;
 	huart1.Init.Parity = UART_PARITY_NONE;
@@ -346,10 +372,8 @@ static void MX_GPIO_Init(void) {
 //-ТАЙМЕРЫ
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM16) {
-		sw1.updateState();
-		sw2.updateState();
-		sw3.updateState();
-		sw4.updateState();
+		for (uint8_t i = 0; i < swcount; i++)
+			swArr[i]->updateState();
 	}
 	if (htim->Instance == TIM17) {
 		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
@@ -377,65 +401,89 @@ void deviceWriteRegister(uint8_t registerNumber, uint8_t registerValue) {
 	boardLedblink(); //вспышка светодиода
 
 	//-обновление адреса устройства
-	if(registerNumber==0xF0){
-		DeviceAdress = registerValue;
-		writeDataToFlash(DeviceAdress);
+	if (registerNumber >= 0xF0 && registerNumber <= 0xF2) {
+		uint64_t flashconfig = readDataFromFlash(); //считываем адрес устройства
+
+		uint8_t _deviceAdress = flashconfig & 0xFF; //адрес устройства
+		uint32_t _deviceBaudRate = (flashconfig >> 8) & 0xFFFFFFFF; //битрейт устройства
+		uint8_t _deviceConfig = (flashconfig >> 40) & 0xFF; //конфигурация устройства
+
+		if (registerNumber == 0xF0) {
+			_deviceAdress = registerValue;
+		} else if (registerNumber == 0xF1) {
+			_deviceBaudRate = UART_BAUD_RATE_ARR [registerValue];
+		} else if (registerNumber == 0xF2) {
+			_deviceConfig = registerValue;
+		}
+
+		writeDataToFlash( (uint64_t) _deviceConfig << 40 | (uint64_t) _deviceBaudRate << 8 | (uint64_t) _deviceAdress);
 	}
 }
 
 //функция для чтения регистра
-uint8_t deviceReadRegister(uint8_t registerNumber) {
+uint8_t deviceReadRegister(uint8_t registerNumber, bool repeat=false) {
 	boardLedblink(); //вспышка светодиода
 
 	uint8_t registerValue = 0;
 
-	switch (registerNumber) {
-	case 1:
-		registerValue = sw1.getState();
-		break;
-	case 2:
-		registerValue = sw2.getState();
-		break;
-	case 3:
-		registerValue = sw3.getState();
-		break;
-	case 4:
-		registerValue = sw4.getState();
-		break;
-	case 0xF0:
-		registerValue = DeviceAdress;
-		break;
-	default:
+	if (registerNumber > 0 && registerNumber <= swcount) {
+		registerValue = swArr[registerNumber-1]->getState(repeat);
+	}
+	else if (registerNumber >= 0xF0 && registerNumber <= 0xF2) {
+		uint64_t flashconfig = readDataFromFlash(); //считываем адрес устройства
+
+		uint8_t _deviceAdress = flashconfig & 0xFF; //адрес устройства
+		uint32_t _deviceBaudRate = (flashconfig >> 8) & 0xFFFFFFFF; //битрейт устройства
+		uint8_t _deviceConfig = (flashconfig >> 40) & 0xFF; //конфигурация устройства
+
+		if (registerNumber == 0xF0) //адрес устройства
+		{
+			registerValue = _deviceAdress;
+		}
+		else if (registerNumber == 0xF1) //битрейт устройства
+		{
+			for (uint8_t i = 0; i < sizeof(UART_BAUD_RATE_ARR ) / sizeof(UART_BAUD_RATE_ARR [0]); i++) {
+				if (UART_BAUD_RATE_ARR [i] == _deviceBaudRate) {
+					registerValue = i;
+					break;
+				}
+
+			}
+		}
+		else if (registerNumber == 0xF2) //конфигурация устройства
+		{
+			registerValue = _deviceConfig;
+		}
+	}
+	else {
 		registerValue = 0x00;
-		break;
 	}
 
 	return registerValue;
 }
 
 //функция для чтения всех регистров
-uint8_t* deviceRead4Register() {
+uint8_t* deviceRead4Register(bool repeat=false) {
 	boardLedblink(); //вспышка светодиода
 
-	uint8_t registerValue1 = sw1.getState();
-	uint8_t registerValue2 = sw2.getState();
-	uint8_t registerValue3 = sw3.getState();
-	uint8_t registerValue4 = sw4.getState();
+	uint8_t *registerNumbersAndValues = new uint8_t[swcount * 2];
 
-	uint8_t *registerNumbersAndValues = new uint8_t[8] { 0x01, registerValue1,
-			0x02, registerValue2, 0x03, registerValue3, 0x04, registerValue4 };
+	for (uint8_t i = 0; i < swcount; i++) {
+		registerNumbersAndValues[i*2] = i + 1;
+		registerNumbersAndValues[i*2 + 1] = swArr[i]->getState(repeat);
+	}
 
 	return registerNumbersAndValues;
 }
 
 ///-------------------------------------------
 // Функция для чтения переменной из Flash
-uint8_t readDataFromFlash(void) {
-	return *((uint8_t*) FLASH_DATA_ADDRESS);
+uint64_t readDataFromFlash(void) {
+	return *((uint64_t*) FLASH_DATA_ADDRESS);
 }
 
 // Функция для записи переменной во Flash
-void writeDataToFlash(uint8_t data) {
+void writeDataToFlash(uint64_t data) {
 	HAL_FLASH_Unlock();
 
 	FLASH_EraseInitTypeDef EraseInitStruct;
@@ -447,7 +495,7 @@ void writeDataToFlash(uint8_t data) {
 
 	HAL_FLASHEx_Erase(&EraseInitStruct, &PageError);
 
-	HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FLASH_DATA_ADDRESS, data);
+	HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, FLASH_DATA_ADDRESS, data);
 
 	HAL_FLASH_Lock();  // Заблокировать Flash
 }

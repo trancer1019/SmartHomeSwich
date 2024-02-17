@@ -9,6 +9,7 @@ Debouncer::Debouncer(GPIO_TypeDef *port, uint16_t pin) {
 	counter = 0;
 
 	switchings = 0;
+	switchings_backup = 0;
 }
 
 void Debouncer::updateState() {
@@ -28,11 +29,21 @@ void Debouncer::updateState() {
 	}
 }
 
-uint8_t Debouncer::getState() {
+uint8_t Debouncer::getState(bool repeat) {
+
+	if(repeat) {
+		switchings_backup += switchings;
+		switchings = 0; //сбрасываем количество переключений
+	}
+	else {
+		switchings_backup = switchings;
+		switchings = 0; //сбрасываем количество переключений
+	}
+
 	uint8_t result = (((uint8_t) firstStartFlag) << 7)
-			| (((switchings <= 0x0F) ? switchings : 0x0F) << 1)
-			| (buttonState & 0x01);
-	switchings = 0; //сбрасываем количество переключений
+				| (((switchings_backup <= 0x0F) ? switchings_backup : 0x0F) << 1)
+				| (buttonState & 0x01);
+
 	firstStartFlag = false; //флаг "только загрузились"
 	return result;
 }

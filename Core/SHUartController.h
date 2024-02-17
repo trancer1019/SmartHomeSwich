@@ -28,8 +28,8 @@ private:
 	void sendConfirm(uint8_t registerNumber);
 
 	void writeRegister(uint8_t registerNumber, uint8_t registerValue);
-	void readRegister(uint8_t registerNumber);
-	void read4Register();
+	void readRegister(uint8_t registerNumber, bool repeat);
+	void read4Register(bool repeat);
 };
 
 #endif /* SHUARTCONTROLLER_H_ */
